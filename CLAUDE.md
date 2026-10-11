@@ -9,7 +9,7 @@ This file provides guidance for AI assistants (Claude and others) working in thi
 A macOS menu-bar tool that scrolls Claude desktop-client replies across the MacBook notch area like a teleprompter, with selectable scroll speed.
 
 - **Repo**: `kidgitt/idea`
-- **Status**: Feasibility spike — verifying that reply text can be read live from the Claude desktop client via the macOS Accessibility API
+- **Status**: First app version (`NotchPrompter/`); reading replies via the macOS Accessibility API was verified with `spike/ax-probe`
 - **Branch strategy**: See [Branch Conventions](#branch-conventions) below
 
 ---
@@ -19,6 +19,10 @@ A macOS menu-bar tool that scrolls Claude desktop-client replies across the MacB
 ```
 /
 ├── CLAUDE.md                  # This file
+├── NotchPrompter/             # The menu-bar app (Swift package, run with `swift run -c release`)
+│   ├── Package.swift
+│   ├── README.md              # Features, how to run, file overview
+│   └── Sources/NotchPrompter/
 └── spike/
     └── ax-probe/              # Swift CLI: reads Claude replies via the Accessibility API (feasibility spike)
         ├── Package.swift
@@ -26,20 +30,20 @@ A macOS menu-bar tool that scrolls Claude desktop-client replies across the MacB
         └── Sources/ax-probe/
 ```
 
-Swift code only builds on macOS (`cd spike/ax-probe && swift build`); it cannot be compiled in the Linux cloud environment.
+Swift code only builds on macOS (`swift build` inside `NotchPrompter/` or `spike/ax-probe/`); it cannot be compiled in the Linux cloud environment.
+
+The Claude desktop client's accessibility-tree structure that the app relies on is documented at the top of `NotchPrompter/Sources/NotchPrompter/ClaudeUI.swift`. If Claude updates break reading, use `ax-probe locate "<text>"` to inspect the new structure.
 
 ---
 
 ## Tech Stack
 
-> **TODO**: Fill in once the stack is chosen.
-
 | Layer | Technology |
 |-------|------------|
-| Language | — |
-| Framework | — |
-| Database | — |
-| Testing | — |
+| Language | Swift 5.9 (Swift Package Manager, no third-party dependencies) |
+| Framework | AppKit, macOS Accessibility API (ApplicationServices), CoreText |
+| Platform | macOS 14+ |
+| Testing | Manual on a Mac (no automated tests yet) |
 | CI/CD | — |
 
 ---

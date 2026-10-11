@@ -2,7 +2,7 @@ import AppKit
 
 /// 管理刘海面板的显示、隐藏和展开：
 /// - 回复出现文字时从刘海展开，单行滚动播放
-/// - 鼠标悬停时暂停；点击展开成多行，可以回看全文；鼠标移开后收起
+/// - 鼠标悬停时暂停；点击展开成多行，可以回看全文；单击全文中的文字从该处继续播放；鼠标移开后收起
 /// - 播放完毕几秒后自动收起
 /// - 切到不是 Claude 所在的桌面时收起并暂停，切回来后继续
 /// - 文字下方的状态行：进度条和剩余时间；悬停时左侧出现"跳到最新"按钮
@@ -26,6 +26,9 @@ final class PrompterController: NSObject {
         }
     }
 
+    /// 当前桌面上能否看到 Claude 窗口。Claude 最小化后通常会暂停刷新页面，读不到新内容，状态行据此提示
+    var isClaudeWindowVisible = true
+
     /// "测试滚动"不依赖 Claude，不受所在桌面影响
     private var ignoresSuspension = false
     private var isEffectivelySuspended: Bool { isSuspended && !ignoresSuspension }
@@ -34,7 +37,11 @@ final class PrompterController: NSObject {
     private let content = NotchContentView()
     private let ticker = TickerView()
     private let scrollView = NSScrollView()
-    private let textView = NSTextView()
+    private let textView = ClickableTextView()
+    private let textAttributes: [NSAttributedString.Key: Any] = [
+        .font: NSFont.systemFont(ofSize: 14),
+        .foregroundColor: NSColor.white,
+    ]
     private let progressLine = ProgressLineView()
     private let remainingLabel = NSTextField(labelWithString: "")
     private let jumpButton = FirstMouseButton()
@@ -79,8 +86,8 @@ final class PrompterController: NSObject {
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = false
-        textView.textColor = .white
-        textView.font = .systemFont(ofSize: 14)
+        textView.typingAttributes = textAttributes
+        textView.onClickCharacter = { [weak self] index in self?.play(fromUTF16Index: index) }
         textView.textContainerInset = NSSize(width: 4, height: 6)
         textView.isVerticallyResizable = true
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
@@ -127,8 +134,8 @@ final class PrompterController: NSObject {
 
     func append(_ text: String) {
         fullText += text
-        textView.string = fullText
-        if isExpanded { textView.scrollToEndOfDocument(nil) }
+        // 追加而不是整体替换，保留展开时已播放部分的变暗效果；展开时也不自动滚动，免得打断选择位置
+        textView.textStorage?.append(NSAttributedString(string: text, attributes: textAttributes))
         // 块与块之间用全角空格隔开，在一行里也能看出分段
         ticker.append(text.replacingOccurrences(of: "\n", with: "\u{3000}"))
         isDrained = false
@@ -153,11 +160,35 @@ final class PrompterController: NSObject {
     /// 跳过积压的内容，直接播放最新的文字
     func jumpToLatest() {
         ticker.jumpToLatest()
-        if isExpanded { textView.scrollToEndOfDocument(nil) }
+        if isExpanded { showPlaybackPosition() }
     }
 
     @objc private func jumpButtonClicked() {
         jumpToLatest()
+    }
+
+    /// 单击全文中的文字：收起全文，从该处继续播放
+    private func play(fromUTF16Index index: Int) {
+        ticker.jump(toUTF16Index: index)
+        cancelHide()
+        isDrained = false
+        // 鼠标此时还在面板上。不把它算作悬停，让播放立即继续；移开再移回来才会重新暂停
+        isHovering = false
+        setExpanded(false)
+        updateJumpButton()
+        updatePause()
+    }
+
+    /// 展开全文时：已播放的部分变暗，并滚动到当前播放位置
+    private func showPlaybackPosition() {
+        guard let storage = textView.textStorage else { return }
+        let position = min(ticker.currentUTF16Index, storage.length)
+        storage.beginEditing()
+        storage.addAttribute(.foregroundColor, value: NSColor.white, range: NSRange(location: 0, length: storage.length))
+        storage.addAttribute(.foregroundColor, value: NSColor.white.withAlphaComponent(0.4),
+                             range: NSRange(location: 0, length: position))
+        storage.endEditing()
+        textView.scrollRangeToVisible(NSRange(location: position, length: 0))
     }
 
     // MARK: - 进度
@@ -175,7 +206,7 @@ final class PrompterController: NSObject {
             text = String(format: "剩余 %ld:%02ld", seconds / 60, seconds % 60) + (progress.isComplete ? "" : "+")
         } else {
             // 已追上 Claude 的输出，等新文字
-            text = progress.isComplete ? "" : "等待中"
+            text = progress.isComplete ? "" : (isClaudeWindowVisible ? "等待中" : "Claude 窗口未显示")
         }
         if remainingLabel.stringValue != text { remainingLabel.stringValue = text }
     }
@@ -251,7 +282,7 @@ final class PrompterController: NSObject {
         applyLayout()
         if expanded {
             cancelHide()
-            textView.scrollToEndOfDocument(nil)
+            showPlaybackPosition()
         }
         updatePause()
     }
@@ -294,7 +325,7 @@ final class PrompterController: NSObject {
     /// 状态行：左边是"跳到最新"按钮（仅悬停时），中间是进度条，右边是剩余时间
     private func layoutStatusRow() {
         let width = content.bounds.width
-        let labelWidth: CGFloat = 76
+        let labelWidth: CGFloat = 110
         let buttonWidth: CGFloat = 76
         jumpButton.frame = NSRect(x: 14, y: 1, width: buttonWidth, height: 14)
         remainingLabel.frame = NSRect(x: width - 16 - labelWidth, y: 2, width: labelWidth, height: 12)

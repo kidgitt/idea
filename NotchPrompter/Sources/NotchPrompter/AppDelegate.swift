@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             spaceTracker.update()
             prompter.isSuspended = !spaceTracker.isOnClaudeSpace
+            prompter.isClaudeWindowVisible = spaceTracker.isClaudeVisible
         }
         RunLoop.main.add(timer, forMode: .common)
         spaceCheckTimer = timer

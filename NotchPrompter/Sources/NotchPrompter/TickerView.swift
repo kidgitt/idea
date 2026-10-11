@@ -36,6 +36,8 @@ final class TickerView: NSView {
     private var link: CADisplayLink?
     private var lastTimestamp: CFTimeInterval?
     private let fadeMask = CAGradientLayer()
+    /// 阅读位置：可视区域从左往右 15% 处。点击全文跳转时，把目标文字放在这里
+    private let readingPoint: CGFloat = 0.15
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -109,6 +111,26 @@ final class TickerView: NSView {
     func jumpToLatest() {
         guard charCount > 0, offset < lineWidth else { return }
         offset = lineWidth
+        needsDisplay = true
+        reportProgress()
+    }
+
+    /// 当前阅读位置对应的文字下标（UTF-16），展开全文时用来定位
+    var currentUTF16Index: Int {
+        guard let line else { return 0 }
+        let localX = offset - bounds.width * (1 - readingPoint)
+        guard localX > 0 else { return 0 }
+        let index = CTLineGetStringIndexForPosition(line, CGPoint(x: localX, y: 0))
+        return index == kCFNotFound ? 0 : index
+    }
+
+    /// 从第 index 个字符（UTF-16 下标）处继续播放：把它放到阅读位置，可以往回也可以往前
+    func jump(toUTF16Index index: Int) {
+        guard let line, charCount > 0 else { return }
+        let x = CTLineGetOffsetForStringIndex(line, index, nil)
+        let limit = isComplete ? lineWidth + bounds.width : lineWidth
+        offset = min(max(x + bounds.width * (1 - readingPoint), 0), limit)
+        hasDrained = false
         needsDisplay = true
         reportProgress()
     }

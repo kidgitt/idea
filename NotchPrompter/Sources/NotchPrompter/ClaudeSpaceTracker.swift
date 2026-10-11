@@ -10,6 +10,8 @@ final class ClaudeSpaceTracker {
     private let marker: NSWindow
     private var hasHome = false
     private var consecutiveSightings = 0
+    /// 最近一次检查时，当前桌面上能否看到 Claude 的窗口（最小化、隐藏时为 false）
+    private(set) var isClaudeVisible = false
 
     init() {
         marker = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
@@ -31,7 +33,8 @@ final class ClaudeSpaceTracker {
     /// 定时调用。连续两次在当前桌面看到 Claude 窗口，才把标记移过来：
     /// 刚切换桌面时窗口列表可能还是旧桌面的，只看一次容易把标记移错
     func update() {
-        consecutiveSightings = claudeHasWindowOnCurrentSpace() ? consecutiveSightings + 1 : 0
+        isClaudeVisible = claudeHasWindowOnCurrentSpace()
+        consecutiveSightings = isClaudeVisible ? consecutiveSightings + 1 : 0
         guard consecutiveSightings >= 2, !hasHome || !marker.isOnActiveSpace else { return }
         // 先收起再显示，窗口会被放到当前桌面
         marker.orderOut(nil)

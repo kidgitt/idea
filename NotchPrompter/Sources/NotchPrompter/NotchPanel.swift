@@ -84,3 +84,18 @@ final class ProgressLineView: NSView {
 final class FirstMouseButton: NSButton {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
+
+/// 展开后的全文：单击文字时回调该处的字符下标（UTF-16），拖选文字时不回调，方便复制
+final class ClickableTextView: NSTextView {
+    var onClickCharacter: ((Int) -> Void)?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        let index = characterIndexForInsertion(at: convert(event.locationInWindow, from: nil))
+        // 交给系统处理拖选，松开鼠标后才返回
+        super.mouseDown(with: event)
+        guard selectedRange().length == 0 else { return }
+        onClickCharacter?(index)
+    }
+}

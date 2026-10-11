@@ -36,8 +36,11 @@ final class TickerView: NSView {
     private var link: CADisplayLink?
     private var lastTimestamp: CFTimeInterval?
     private let fadeMask = CAGradientLayer()
-    /// 阅读位置：可视区域从左往右 15% 处。点击全文跳转时，把目标文字放在这里
-    private let readingPoint: CGFloat = 0.15
+    /// 阅读位置：可视区域从左往右 30% 处。点击全文跳转时，把目标文字放在这里
+    private let readingPoint: CGFloat = 0.3
+    /// 跳转后在目标文字下方短暂显示的下划线：x、宽度为文字行内的坐标，until 为消失时间
+    private var jumpMarker: (x: CGFloat, width: CGFloat, until: CFTimeInterval)?
+    private let jumpMarkerDuration: CFTimeInterval = 2
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -128,8 +131,10 @@ final class TickerView: NSView {
     func jump(toUTF16Index index: Int) {
         guard let line, charCount > 0 else { return }
         let x = CTLineGetOffsetForStringIndex(line, index, nil)
+        let nextX = CTLineGetOffsetForStringIndex(line, index + 1, nil)
         let limit = isComplete ? lineWidth + bounds.width : lineWidth
         offset = min(max(x + bounds.width * (1 - readingPoint), 0), limit)
+        jumpMarker = (x, max(nextX - x, 8), CACurrentMediaTime() + jumpMarkerDuration)
         hasDrained = false
         needsDisplay = true
         reportProgress()
@@ -172,8 +177,19 @@ final class TickerView: NSView {
         var ascent: CGFloat = 0
         var descent: CGFloat = 0
         CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+        let originX = bounds.width - offset
+        let baseline = (bounds.height - ascent - descent) / 2 + descent
         context.textMatrix = .identity
-        context.textPosition = CGPoint(x: bounds.width - offset, y: (bounds.height - ascent - descent) / 2 + descent)
+        context.textPosition = CGPoint(x: originX, y: baseline)
         CTLineDraw(line, context)
+
+        if let marker = jumpMarker {
+            if CACurrentMediaTime() < marker.until {
+                NSColor.systemYellow.setFill()
+                NSRect(x: originX + marker.x, y: baseline - descent - 2, width: marker.width, height: 2).fill()
+            } else {
+                jumpMarker = nil
+            }
+        }
     }
 }

@@ -316,7 +316,8 @@ final class PrompterController: NSObject {
         panel.setFrame(NSRect(x: frame.midX - width / 2, y: frame.maxY - height, width: width, height: height), display: true)
         content.needsDisplay = true
         // 内容区在刘海下方（坐标原点在左下角）
-        ticker.frame = NSRect(x: 16, y: statusRowHeight, width: width - 32, height: textRowHeight)
+        // 滚动文字始终按收起时的宽度布局：展开时它被隐藏，宽度不变，收起后文字位置才不会错开
+        ticker.frame = NSRect(x: 16, y: statusRowHeight, width: collapsedWidth - 32, height: textRowHeight)
         scrollView.frame = NSRect(x: 12, y: 10, width: width - 24, height: bodyHeight - 14)
         textView.frame.size.width = scrollView.contentSize.width
         updateJumpButton()

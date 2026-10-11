@@ -14,6 +14,9 @@ final class PrompterController {
         didSet { updatePause() }
     }
 
+    /// 显示框宽度（pt）。实际宽度不会窄于刘海，也不会超出屏幕
+    private(set) var preferredWidth: CGFloat = 480
+
     private let panel = NotchPanel()
     private let content = NotchContentView()
     private let ticker = TickerView()
@@ -93,6 +96,17 @@ final class PrompterController {
         ticker.markComplete()
     }
 
+    /// 修改宽度。preview 为 true 且当前没有在播放时，短暂显示面板预览新宽度
+    func setPreferredWidth(_ width: CGFloat, preview: Bool) {
+        preferredWidth = width
+        if panel.isVisible {
+            applyLayout()
+        } else if preview {
+            show()
+        }
+        if preview && (isDrained || fullText.isEmpty) { scheduleHide() }
+    }
+
     // MARK: - 显示与隐藏
 
     private func show() {
@@ -165,7 +179,9 @@ final class PrompterController {
         if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea {
             notchWidth = frame.width - left.width - right.width
         }
-        let width = max(notchWidth + 200, isExpanded ? 520 : 420)
+        let maxWidth = frame.width - 40
+        let collapsedWidth = min(max(preferredWidth, notchWidth + 40), maxWidth)
+        let width = isExpanded ? min(max(collapsedWidth, 520), maxWidth) : collapsedWidth
         let bodyHeight = isExpanded ? expandedHeight : tickerHeight
         let height = topInset + bodyHeight
 

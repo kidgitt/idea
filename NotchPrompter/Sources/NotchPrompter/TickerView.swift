@@ -38,9 +38,13 @@ final class TickerView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func layout() {
-        super.layout()
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        // 宽度可调，渐隐遮罩跟着变；关掉隐式动画，避免遮罩落后于文字
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         fadeMask.frame = bounds
+        CATransaction.commit()
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

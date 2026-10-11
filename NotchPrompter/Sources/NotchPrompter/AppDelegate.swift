@@ -1,6 +1,6 @@
 import AppKit
 
-/// 菜单栏图标和菜单：连接状态、播放速度、暂停、测试滚动、退出
+/// 菜单栏图标和菜单：连接状态、播放速度、显示宽度、暂停、测试滚动、退出
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let prompter = PrompterController()
     private let reader = ClaudeReader()
@@ -8,12 +8,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private let statusMenuItem = NSMenuItem(title: "正在启动…", action: nil, keyEquivalent: "")
     private let pauseMenuItem = NSMenuItem(title: "暂停播放", action: #selector(AppDelegate.togglePause), keyEquivalent: "")
-    private var presetMenuItems: [NSMenuItem] = []
+
+    private var speedPresetItems: [NSMenuItem] = []
     private let speedSlider = NSSlider(value: 7, minValue: 2, maxValue: 20, target: nil, action: nil)
     private let speedLabel = NSTextField(labelWithString: "")
-
-    private let presets: [(name: String, charsPerSecond: Double)] = [("慢", 4), ("中", 7), ("快", 11)]
+    private let speedPresets: [(name: String, value: Double)] = [("慢", 4), ("中", 7), ("快", 11)]
     private let speedDefaultsKey = "charsPerSecond"
+
+    private var widthPresetItems: [NSMenuItem] = []
+    private let widthSlider = NSSlider(value: 480, minValue: 280, maxValue: 1000, target: nil, action: nil)
+    private let widthLabel = NSTextField(labelWithString: "")
+    private let widthPresets: [(name: String, value: Double)] = [("窄", 360), ("中", 480), ("宽", 640)]
+    private let widthDefaultsKey = "panelWidth"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -21,8 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.menu = buildMenu()
         statusItem = item
 
-        let saved = UserDefaults.standard.double(forKey: speedDefaultsKey)
-        setSpeed(saved > 0 ? saved : 7)
+        let savedSpeed = UserDefaults.standard.double(forKey: speedDefaultsKey)
+        setSpeed(savedSpeed > 0 ? savedSpeed : 7)
+        let savedWidth = UserDefaults.standard.double(forKey: widthDefaultsKey)
+        setWidth(savedWidth > 0 ? savedWidth : 480, preview: false)
 
         reader.onEvent = { [weak self] event in self?.handle(event) }
         reader.start()
@@ -46,18 +54,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(statusMenuItem)
         menu.addItem(.separator())
 
-        let header = NSMenuItem(title: "播放速度", action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
-        for preset in presets {
-            let item = NSMenuItem(title: "\(preset.name)（\(Int(preset.charsPerSecond)) 字/秒）",
-                                  action: #selector(choosePreset(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = preset.charsPerSecond
-            menu.addItem(item)
-            presetMenuItems.append(item)
-        }
-        menu.addItem(sliderMenuItem())
+        speedPresetItems = addPresets(to: menu, title: "播放速度", presets: speedPresets, unit: "字/秒",
+                                      action: #selector(chooseSpeedPreset(_:)))
+        menu.addItem(sliderMenuItem(speedSlider, label: speedLabel, action: #selector(speedSliderChanged(_:))))
+        menu.addItem(.separator())
+
+        widthPresetItems = addPresets(to: menu, title: "显示宽度", presets: widthPresets, unit: "pt",
+                                      action: #selector(chooseWidthPreset(_:)))
+        menu.addItem(sliderMenuItem(widthSlider, label: widthLabel, action: #selector(widthSliderChanged(_:))))
         menu.addItem(.separator())
 
         pauseMenuItem.target = self
@@ -71,21 +75,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return menu
     }
 
-    private func sliderMenuItem() -> NSMenuItem {
+    /// 添加一个不可点的小标题和几个预设项，返回预设项以便之后更新勾选状态
+    private func addPresets(to menu: NSMenu, title: String, presets: [(name: String, value: Double)],
+                            unit: String, action: Selector) -> [NSMenuItem] {
+        let header = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+        return presets.map { preset -> NSMenuItem in
+            let item = NSMenuItem(title: "\(preset.name)（\(Int(preset.value)) \(unit)）", action: action, keyEquivalent: "")
+            item.target = self
+            item.representedObject = preset.value
+            menu.addItem(item)
+            return item
+        }
+    }
+
+    private func sliderMenuItem(_ slider: NSSlider, label: NSTextField, action: Selector) -> NSMenuItem {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 28))
-        speedSlider.frame = NSRect(x: 20, y: 4, width: 150, height: 20)
-        speedSlider.target = self
-        speedSlider.action = #selector(sliderChanged(_:))
-        speedSlider.isContinuous = true
-        speedLabel.frame = NSRect(x: 176, y: 6, width: 60, height: 16)
-        speedLabel.font = .menuFont(ofSize: 12)
-        speedLabel.textColor = .secondaryLabelColor
-        container.addSubview(speedSlider)
-        container.addSubview(speedLabel)
+        slider.frame = NSRect(x: 20, y: 4, width: 150, height: 20)
+        slider.target = self
+        slider.action = action
+        slider.isContinuous = true
+        label.frame = NSRect(x: 176, y: 6, width: 60, height: 16)
+        label.font = .menuFont(ofSize: 12)
+        label.textColor = .secondaryLabelColor
+        container.addSubview(slider)
+        container.addSubview(label)
 
         let item = NSMenuItem()
         item.view = container
         return item
+    }
+
+    private func updateChecks(_ items: [NSMenuItem], selected value: Double) {
+        for item in items {
+            item.state = (item.representedObject as? Double) == value ? .on : .off
+        }
     }
 
     private func setSpeed(_ value: Double) {
@@ -93,18 +118,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         prompter.charsPerSecond = speed
         speedSlider.doubleValue = speed
         speedLabel.stringValue = "\(Int(speed)) 字/秒"
-        for item in presetMenuItems {
-            item.state = (item.representedObject as? Double) == speed ? .on : .off
-        }
+        updateChecks(speedPresetItems, selected: speed)
         UserDefaults.standard.set(speed, forKey: speedDefaultsKey)
     }
 
-    @objc private func choosePreset(_ sender: NSMenuItem) {
+    /// preview：调整时在刘海处短暂显示面板，方便看到新宽度
+    private func setWidth(_ value: Double, preview: Bool) {
+        let width = (value / 10).rounded() * 10
+        prompter.setPreferredWidth(CGFloat(width), preview: preview)
+        widthSlider.doubleValue = width
+        widthLabel.stringValue = "\(Int(width)) pt"
+        updateChecks(widthPresetItems, selected: width)
+        UserDefaults.standard.set(width, forKey: widthDefaultsKey)
+    }
+
+    @objc private func chooseSpeedPreset(_ sender: NSMenuItem) {
         if let value = sender.representedObject as? Double { setSpeed(value) }
     }
 
-    @objc private func sliderChanged(_ sender: NSSlider) {
+    @objc private func speedSliderChanged(_ sender: NSSlider) {
         setSpeed(sender.doubleValue)
+    }
+
+    @objc private func chooseWidthPreset(_ sender: NSMenuItem) {
+        if let value = sender.representedObject as? Double { setWidth(value, preview: true) }
+    }
+
+    @objc private func widthSliderChanged(_ sender: NSSlider) {
+        setWidth(sender.doubleValue, preview: true)
     }
 
     @objc private func togglePause() {

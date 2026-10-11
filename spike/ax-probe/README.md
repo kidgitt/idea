@@ -48,7 +48,13 @@ swift build -c release
 .build/release/ax-probe dump > tree.txt
 ```
 
-在 `tree.txt` 中搜索回复里的一段文字，看它上面几层元素的 class（以 `.` 开头的部分）。找到能代表"Claude 的一条回复"的 class 后，用 `--class` 指定：
+更省事的做法是用 `locate` 直接定位某段文字所在的元素：
+
+```bash
+.build/release/ax-probe locate "Claude 已回复" > locate.txt
+```
+
+也可以在 `tree.txt` 中搜索回复里的一段文字，看它上面几层元素的 class（以 `.` 开头的部分）。找到能代表"Claude 的一条回复"的 class 后，用 `--class` 指定：
 
 ```bash
 .build/release/ax-probe watch --class 你找到的class片段
@@ -71,6 +77,8 @@ swift build -c release
 | `watch` | `--class` | `font-claude` | 回复元素 class 中包含的片段 |
 | `watch` | `--interval` | `250` | 轮询间隔，单位毫秒 |
 | `watch` | `--idle` | `1500` | 文字多久不变就算回复结束，单位毫秒 |
+| `locate "文字"` | `--max` | `2` | 只输出最后几处匹配 |
+| `locate "文字"` | `--context` | `4` | 从匹配的元素往上几层，打印那一层的子树 |
 | `dump` | `--depth` | `200` | 最大遍历深度 |
 | `dump` | `--max-nodes` | `20000` | 最多输出的节点数 |
 

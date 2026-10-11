@@ -18,7 +18,7 @@ func runDump(maxDepth: Int, maxNodes: Int) throws {
     report("共输出 \(count) 个节点\(count >= maxNodes ? "（已达上限 --max-nodes \(maxNodes)，后面被截断）" : "")")
 }
 
-private func describe(_ element: AXUIElement, depth: Int) -> String {
+func describe(_ element: AXUIElement, depth: Int) -> String {
     var line = String(repeating: "  ", count: depth) + (element.role ?? "?")
     if let subrole = element.subrole { line += " [\(subrole)]" }
     if let id = element.domIdentifier, !id.isEmpty { line += " #\(id)" }

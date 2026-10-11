@@ -74,6 +74,13 @@ func readReply(_ row: AXUIElement) -> Reply {
     return Reply(text: lines.joined(separator: "\n"), hasToolbar: hasToolbar)
 }
 
+/// 卡片、图片等富内容加载时的占位文字，不属于正文
+private let placeholderLines: Set<String> = ["加载中", "图片不可用", "Loading", "Image unavailable"]
+
+private func isPlaceholder(_ line: String) -> Bool {
+    placeholderLines.contains(line.trimmingCharacters(in: CharacterSet(charactersIn: ".…")))
+}
+
 /// 按块拆行：连续的文字和链接拼成一行，遇到其他容器（段落、列表项、标题等）就换行
 private func readableLines(_ root: AXUIElement) -> [String] {
     var lines: [String] = []
@@ -81,7 +88,7 @@ private func readableLines(_ root: AXUIElement) -> [String] {
 
     func flush() {
         let line = current.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !line.isEmpty { lines.append(line) }
+        if !line.isEmpty && !isPlaceholder(line) { lines.append(line) }
         current = ""
     }
 

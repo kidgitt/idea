@@ -21,8 +21,18 @@ private func sameElement(_ a: AXUIElement?, _ b: AXUIElement?) -> Bool {
     }
 }
 
-private func commonPrefixCount(_ a: String, _ b: String) -> Int {
-    zip(a, b).prefix(while: { $0 == $1 }).count
+/// current 中不在 previous 里的行（按出现次数计）。
+/// 卡片等富内容常在正文之后才渲染、插到前面，这时只取新出现的行，避免重复打印整段。
+private func addedLines(_ previous: String, _ current: String) -> [String] {
+    var seen: [Substring: Int] = [:]
+    for line in previous.split(separator: "\n") { seen[line, default: 0] += 1 }
+    return current.split(separator: "\n").compactMap { line in
+        if let count = seen[line], count > 0 {
+            seen[line] = count - 1
+            return nil
+        }
+        return String(line)
+    }
 }
 
 /// 轮询 Claude 窗口，把最后一条回复新增的文字实时打印出来，并统计扫描耗时。
@@ -95,34 +105,33 @@ func runWatch(_ options: WatchOptions) throws {
         }
 
         if let reply {
-            if articles.count > lastCount {
+            // 思考阶段正文还是空的，等出现文字再开始计时
+            let started: Date? = reply.text.isEmpty ? nil : now
+            if articles.count > lastCount || lastText == nil {
                 emit("\n\n===== 新回复 =====\n" + reply.text)
-                streamStart = now
-                lastChange = now
+                streamStart = started
+                lastChange = started
             } else if articles.count < lastCount {
                 report("[消息条数减少 \(lastCount) → \(articles.count)，重新同步]")
             } else if let previous = lastText, reply.text != previous {
                 if reply.text.hasPrefix(previous) {
                     emit(String(reply.text.dropFirst(previous.count)))
                 } else {
-                    let common = commonPrefixCount(previous, reply.text)
-                    emit("\n[前文变化，回退 \(previous.count - common) 字]\n" + String(reply.text.dropFirst(common)))
+                    let added = addedLines(previous, reply.text)
+                    if !added.isEmpty { emit("\n[插入]\n" + added.joined(separator: "\n")) }
                 }
-                if streamStart == nil { streamStart = now }
-                lastChange = now
-            } else if lastText == nil {
-                emit("\n\n===== 新回复 =====\n" + reply.text)
-                streamStart = now
-                lastChange = now
+                if streamStart == nil { streamStart = started }
+                lastChange = started ?? lastChange
             }
 
             if let start = streamStart, let changed = lastChange,
                reply.hasToolbar || now.timeIntervalSince(changed) >= options.idle {
-                let duration = max(changed.timeIntervalSince(start), 0.001)
+                let duration = changed.timeIntervalSince(start)
+                let speed = duration >= 0.5 ? String(format: "（约 %.0f 字/秒）", Double(reply.text.count) / duration) : ""
                 emit("\n")
-                report(String(format: "[完成·%@] 共 %ld 字，生成用时 %.1f 秒（约 %.0f 字/秒）；本轮扫描平均 %.0fms，最慢 %.0fms",
+                report(String(format: "[完成·%@] 共 %ld 字，生成用时 %.1f 秒%@；本轮扫描平均 %.0fms，最慢 %.0fms",
                               reply.hasToolbar ? "工具栏出现" : "文字停止变化",
-                              reply.text.count, duration, Double(reply.text.count) / duration,
+                              reply.text.count, duration, speed,
                               scanTimes.reduce(0, +) / Double(scanTimes.count), scanTimes.max() ?? 0))
                 streamStart = nil
                 lastChange = nil

@@ -5,7 +5,7 @@ import AppKit
 /// - 鼠标悬停时暂停；点击展开成多行，可以回看全文；鼠标移开后收起
 /// - 播放完毕几秒后自动收起
 /// - 切到不是 Claude 所在的桌面时收起并暂停，切回来后继续
-/// - 文字下方显示进度条，刘海右侧显示剩余时间；悬停时刘海左侧出现"跳到最新"按钮
+/// - 文字下方的状态行：进度条和剩余时间；悬停时左侧出现"跳到最新"按钮
 final class PrompterController: NSObject {
     var charsPerSecond: Double {
         get { ticker.charsPerSecond }
@@ -39,7 +39,10 @@ final class PrompterController: NSObject {
     private let remainingLabel = NSTextField(labelWithString: "")
     private let jumpButton = FirstMouseButton()
 
-    private let tickerHeight: CGFloat = 32
+    private let textRowHeight: CGFloat = 30
+    /// 文字下方的状态行：进度条、剩余时间、"跳到最新"按钮
+    private let statusRowHeight: CGFloat = 16
+    private var collapsedHeight: CGFloat { textRowHeight + statusRowHeight }
     private let expandedHeight: CGFloat = 220
     private let hideDelay: TimeInterval = 2.5
 
@@ -49,8 +52,6 @@ final class PrompterController: NSObject {
     private var isHovering = false
     private var isDrained = false
     private var hideWork: DispatchWorkItem?
-    /// 刘海两侧是否有足够空间放剩余时间和"跳到最新"按钮
-    private var hasRoomBesideNotch = false
 
     override init() {
         super.init()
@@ -61,14 +62,15 @@ final class PrompterController: NSObject {
         content.addSubview(remainingLabel)
         content.addSubview(jumpButton)
 
-        remainingLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        remainingLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .medium)
         remainingLabel.textColor = NSColor.white.withAlphaComponent(0.6)
+        remainingLabel.alignment = .right
 
         jumpButton.title = "跳到最新"
         jumpButton.image = NSImage(systemSymbolName: "forward.end.fill", accessibilityDescription: nil)
         jumpButton.imagePosition = .imageLeading
         jumpButton.isBordered = false
-        jumpButton.font = .systemFont(ofSize: 11, weight: .medium)
+        jumpButton.font = .systemFont(ofSize: 10, weight: .medium)
         jumpButton.contentTintColor = .white
         jumpButton.target = self
         jumpButton.action = #selector(jumpButtonClicked)
@@ -179,7 +181,8 @@ final class PrompterController: NSObject {
     }
 
     private func updateJumpButton() {
-        jumpButton.isHidden = !(isHovering && hasRoomBesideNotch)
+        jumpButton.isHidden = !(isHovering && !isExpanded)
+        layoutStatusRow()
     }
 
     // MARK: - 显示与隐藏
@@ -243,6 +246,7 @@ final class PrompterController: NSObject {
         isExpanded = expanded
         ticker.isHidden = expanded
         progressLine.isHidden = expanded
+        remainingLabel.isHidden = expanded
         scrollView.isHidden = !expanded
         applyLayout()
         if expanded {
@@ -275,26 +279,26 @@ final class PrompterController: NSObject {
         let maxWidth = frame.width - 40
         let collapsedWidth = min(max(preferredWidth, notchWidth + 40), maxWidth)
         let width = isExpanded ? min(max(collapsedWidth, 520), maxWidth) : collapsedWidth
-        let bodyHeight = isExpanded ? expandedHeight : tickerHeight
+        let bodyHeight = isExpanded ? expandedHeight : collapsedHeight
         let height = topInset + bodyHeight
 
         panel.setFrame(NSRect(x: frame.midX - width / 2, y: frame.maxY - height, width: width, height: height), display: true)
         content.needsDisplay = true
         // 内容区在刘海下方（坐标原点在左下角）
-        ticker.frame = NSRect(x: 16, y: 2, width: width - 32, height: tickerHeight - 2)
-        progressLine.frame = NSRect(x: 20, y: 3, width: width - 40, height: 2)
+        ticker.frame = NSRect(x: 16, y: statusRowHeight, width: width - 32, height: textRowHeight)
         scrollView.frame = NSRect(x: 12, y: 10, width: width - 24, height: bodyHeight - 14)
         textView.frame.size.width = scrollView.contentSize.width
-
-        // 刘海两侧（菜单栏那一行）：右边放剩余时间，左边放"跳到最新"按钮
-        let sideWidth = (width - notchWidth) / 2 - 16
-        hasRoomBesideNotch = sideWidth >= 64
-        let buttonWidth = min(sideWidth, 84)
-        remainingLabel.frame = NSRect(x: width / 2 + notchWidth / 2 + 8, y: bodyHeight + (topInset - 14) / 2,
-                                      width: max(sideWidth - 4, 0), height: 14)
-        jumpButton.frame = NSRect(x: width / 2 - notchWidth / 2 - 8 - buttonWidth, y: bodyHeight + (topInset - 20) / 2,
-                                  width: buttonWidth, height: 20)
-        remainingLabel.isHidden = !hasRoomBesideNotch
         updateJumpButton()
+    }
+
+    /// 状态行：左边是"跳到最新"按钮（仅悬停时），中间是进度条，右边是剩余时间
+    private func layoutStatusRow() {
+        let width = content.bounds.width
+        let labelWidth: CGFloat = 76
+        let buttonWidth: CGFloat = 76
+        jumpButton.frame = NSRect(x: 14, y: 1, width: buttonWidth, height: 14)
+        remainingLabel.frame = NSRect(x: width - 16 - labelWidth, y: 2, width: labelWidth, height: 12)
+        let lineStart: CGFloat = jumpButton.isHidden ? 20 : jumpButton.frame.maxX + 6
+        progressLine.frame = NSRect(x: lineStart, y: 7, width: max(remainingLabel.frame.minX - 8 - lineStart, 0), height: 2)
     }
 }

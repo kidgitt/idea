@@ -12,9 +12,22 @@ final class PrompterController: NSObject {
         set { ticker.charsPerSecond = newValue }
     }
 
+    /// 用户手动暂停：暂停播放并收起面板，刘海恢复原样；继续播放时从暂停处接着播。
+    /// 新的回复开始时自动取消暂停
     var isUserPaused = false {
-        didSet { updatePause() }
+        didSet {
+            guard isUserPaused != oldValue else { return }
+            updatePause()
+            if isUserPaused {
+                cancelHide()
+                hide()
+            } else if !isDrained && !fullText.isEmpty {
+                show()
+            }
+            onUserPauseChanged?(isUserPaused)
+        }
     }
+    var onUserPauseChanged: ((Bool) -> Void)?
 
     /// 显示框宽度（pt）。实际宽度不会窄于刘海，也不会超出屏幕
     private(set) var preferredWidth: CGFloat = 480
@@ -45,6 +58,7 @@ final class PrompterController: NSObject {
     private let progressLine = ProgressLineView()
     private let remainingLabel = NSTextField(labelWithString: "")
     private let jumpButton = FirstMouseButton()
+    private let collapseButton = FirstMouseButton()
 
     private let textRowHeight: CGFloat = 30
     /// 文字下方的状态行：进度条、剩余时间、"跳到最新"按钮
@@ -68,20 +82,14 @@ final class PrompterController: NSObject {
         content.addSubview(progressLine)
         content.addSubview(remainingLabel)
         content.addSubview(jumpButton)
+        content.addSubview(collapseButton)
 
         remainingLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .medium)
         remainingLabel.textColor = NSColor.white.withAlphaComponent(0.6)
         remainingLabel.alignment = .right
 
-        jumpButton.title = "跳到最新"
-        jumpButton.image = NSImage(systemSymbolName: "forward.end.fill", accessibilityDescription: nil)
-        jumpButton.imagePosition = .imageLeading
-        jumpButton.isBordered = false
-        jumpButton.font = .systemFont(ofSize: 10, weight: .medium)
-        jumpButton.contentTintColor = .white
-        jumpButton.target = self
-        jumpButton.action = #selector(jumpButtonClicked)
-        jumpButton.isHidden = true
+        configureStatusButton(jumpButton, title: "跳到最新", symbol: "forward.end.fill", action: #selector(jumpButtonClicked))
+        configureStatusButton(collapseButton, title: "暂停收起", symbol: "chevron.up", action: #selector(collapseButtonClicked))
 
         textView.isEditable = false
         textView.isSelectable = true
@@ -108,7 +116,7 @@ final class PrompterController: NSObject {
         content.onHoverChanged = { [weak self] hovering in
             guard let self else { return }
             isHovering = hovering
-            updateJumpButton()
+            updateHoverControls()
             if !hovering {
                 setExpanded(false)
                 if isDrained { scheduleHide() }
@@ -126,6 +134,7 @@ final class PrompterController: NSObject {
         textView.string = ""
         ticker.reset()
         isDrained = false
+        isUserPaused = false
         if ignoresSuspension != isTest {
             ignoresSuspension = isTest
             applySuspension()
@@ -167,6 +176,22 @@ final class PrompterController: NSObject {
         jumpToLatest()
     }
 
+    @objc private func collapseButtonClicked() {
+        isUserPaused = true
+    }
+
+    private func configureStatusButton(_ button: NSButton, title: String, symbol: String, action: Selector) {
+        button.title = title
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        button.imagePosition = .imageLeading
+        button.isBordered = false
+        button.font = .systemFont(ofSize: 10, weight: .medium)
+        button.contentTintColor = .white
+        button.target = self
+        button.action = action
+        button.isHidden = true
+    }
+
     /// 单击全文中的文字：收起全文，从该处继续播放
     private func play(fromUTF16Index index: Int) {
         ticker.jump(toUTF16Index: index)
@@ -175,7 +200,7 @@ final class PrompterController: NSObject {
         // 鼠标此时还在面板上。不把它算作悬停，让播放立即继续；移开再移回来才会重新暂停
         isHovering = false
         setExpanded(false)
-        updateJumpButton()
+        updateHoverControls()
         updatePause()
     }
 
@@ -211,9 +236,20 @@ final class PrompterController: NSObject {
         if remainingLabel.stringValue != text { remainingLabel.stringValue = text }
     }
 
-    private func updateJumpButton() {
-        jumpButton.isHidden = !(isHovering && !isExpanded)
+    /// 悬停时状态行显示两个按钮：左边"跳到最新"，右边"暂停收起"（替换剩余时间，悬停时它本来也只显示"已暂停"）
+    private func updateHoverControls() {
+        let showButtons = isHovering && !isExpanded
+        jumpButton.isHidden = !showButtons
+        collapseButton.isHidden = !showButtons
+        remainingLabel.isHidden = showButtons || isExpanded
         layoutStatusRow()
+    }
+
+    /// 面板被直接收起时收不到鼠标移出事件，手动清掉悬停状态，免得再出现时一直暂停
+    private func forgetHover() {
+        isHovering = false
+        updateHoverControls()
+        updatePause()
     }
 
     // MARK: - 显示与隐藏
@@ -222,20 +258,17 @@ final class PrompterController: NSObject {
         updatePause()
         if isEffectivelySuspended {
             cancelHide()
-            // 面板直接收起时收不到鼠标移出事件，手动清掉悬停状态，免得回来后一直暂停
-            isHovering = false
-            updateJumpButton()
+            forgetHover()
             setExpanded(false)
             panel.orderOut(nil)
-            updatePause()
         } else if !isDrained && !fullText.isEmpty {
             show()
         }
     }
 
-    /// force：预览宽度时即使 Claude 不在当前桌面也显示
+    /// force：预览宽度时即使不在 Claude 所在的桌面或已手动暂停，也显示
     private func show(force: Bool = false) {
-        guard force || !isEffectivelySuspended else { return }
+        guard force || (!isEffectivelySuspended && !isUserPaused) else { return }
         cancelHide()
         if panel.isVisible && panel.alphaValue == 1 { return }
         applyLayout()
@@ -255,6 +288,7 @@ final class PrompterController: NSObject {
             // 动画期间如果又有新文字，show() 会把透明度改回 1，这时不要隐藏
             guard let self, panel.alphaValue == 0 else { return }
             panel.orderOut(nil)
+            forgetHover()
             setExpanded(false)
         })
     }
@@ -277,7 +311,6 @@ final class PrompterController: NSObject {
         isExpanded = expanded
         ticker.isHidden = expanded
         progressLine.isHidden = expanded
-        remainingLabel.isHidden = expanded
         scrollView.isHidden = !expanded
         applyLayout()
         if expanded {
@@ -320,17 +353,19 @@ final class PrompterController: NSObject {
         ticker.frame = NSRect(x: 16, y: statusRowHeight, width: collapsedWidth - 32, height: textRowHeight)
         scrollView.frame = NSRect(x: 12, y: 10, width: width - 24, height: bodyHeight - 14)
         textView.frame.size.width = scrollView.contentSize.width
-        updateJumpButton()
+        updateHoverControls()
     }
 
-    /// 状态行：左边是"跳到最新"按钮（仅悬停时），中间是进度条，右边是剩余时间
+    /// 状态行：中间是进度条；平时右边是剩余时间，悬停时左右两边换成"跳到最新"和"暂停收起"按钮
     private func layoutStatusRow() {
         let width = content.bounds.width
         let labelWidth: CGFloat = 110
         let buttonWidth: CGFloat = 76
         jumpButton.frame = NSRect(x: 14, y: 1, width: buttonWidth, height: 14)
+        collapseButton.frame = NSRect(x: width - 14 - buttonWidth, y: 1, width: buttonWidth, height: 14)
         remainingLabel.frame = NSRect(x: width - 16 - labelWidth, y: 2, width: labelWidth, height: 12)
         let lineStart: CGFloat = jumpButton.isHidden ? 20 : jumpButton.frame.maxX + 6
-        progressLine.frame = NSRect(x: lineStart, y: 7, width: max(remainingLabel.frame.minX - 8 - lineStart, 0), height: 2)
+        let lineEnd: CGFloat = collapseButton.isHidden ? remainingLabel.frame.minX - 8 : collapseButton.frame.minX - 6
+        progressLine.frame = NSRect(x: lineStart, y: 7, width: max(lineEnd - lineStart, 0), height: 2)
     }
 }

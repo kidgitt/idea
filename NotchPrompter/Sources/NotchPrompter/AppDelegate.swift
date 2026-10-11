@@ -9,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var spaceCheckTimer: Timer?
     private let statusMenuItem = NSMenuItem(title: "正在启动…", action: nil, keyEquivalent: "")
-    private let pauseMenuItem = NSMenuItem(title: "暂停播放", action: #selector(AppDelegate.togglePause), keyEquivalent: "")
+    private let pauseMenuItem = NSMenuItem(title: "暂停并收起", action: #selector(AppDelegate.togglePause), keyEquivalent: "")
 
     private var speedPresetItems: [NSMenuItem] = []
     private let speedSlider = NSSlider(value: 7, minValue: 2, maxValue: 20, target: nil, action: nil)
@@ -34,6 +34,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let savedWidth = UserDefaults.standard.double(forKey: widthDefaultsKey)
         setWidth(savedWidth > 0 ? savedWidth : 480, preview: false)
 
+        prompter.onUserPauseChanged = { [weak self] paused in
+            self?.pauseMenuItem.title = paused ? "继续播放" : "暂停并收起"
+        }
         reader.onEvent = { [weak self] event in self?.handle(event) }
         reader.start()
         startFollowingClaudeSpace()
@@ -176,7 +179,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func togglePause() {
         prompter.isUserPaused.toggle()
-        pauseMenuItem.title = prompter.isUserPaused ? "继续播放" : "暂停播放"
     }
 
     @objc private func jumpToLatest() {

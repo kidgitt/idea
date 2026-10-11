@@ -4,6 +4,7 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let prompter = PrompterController()
     private let reader = ClaudeReader()
+    private let spaceTracker = ClaudeSpaceTracker()
 
     private var statusItem: NSStatusItem?
     private var spaceCheckTimer: Timer?
@@ -38,18 +39,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startFollowingClaudeSpace()
     }
 
-    /// 切换桌面时立即检查一次；另外每 0.5 秒检查一次，覆盖最小化、关闭窗口、全屏等情况
+    /// 只在 Claude 所在的桌面显示。切换桌面时立即判断；
+    /// 另外每 0.5 秒更新一次 Claude 所在的桌面（Claude 被移到别的桌面、全屏等情况）
     private func startFollowingClaudeSpace() {
-        let check: () -> Void = { [weak self] in
-            self?.prompter.isSuspended = !claudeHasWindowOnCurrentSpace()
-        }
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
-        ) { _ in check() }
-        let timer = Timer(timeInterval: 0.5, repeats: true) { _ in check() }
+        ) { [weak self] _ in
+            guard let self else { return }
+            spaceTracker.activeSpaceDidChange()
+            prompter.isSuspended = !spaceTracker.isOnClaudeSpace
+        }
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            spaceTracker.update()
+            prompter.isSuspended = !spaceTracker.isOnClaudeSpace
+        }
         RunLoop.main.add(timer, forMode: .common)
         spaceCheckTimer = timer
-        check()
     }
 
     private func handle(_ event: ClaudeReader.Event) {

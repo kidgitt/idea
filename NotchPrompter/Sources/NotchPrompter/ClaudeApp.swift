@@ -10,7 +10,8 @@ func findRunningClaude() -> NSRunningApplication? {
 }
 
 /// 当前桌面（Space）上是否能看到 Claude 的窗口。
-/// 窗口在别的桌面、被最小化或 Claude 没有运行时返回 false。
+/// 窗口在别的桌面、被最小化或 Claude 没有运行时返回 false，
+/// 所以不能直接用来决定是否显示，见 ClaudeSpaceTracker。
 /// 只读取窗口的所属进程、层级和位置，不需要屏幕录制权限。
 func claudeHasWindowOnCurrentSpace() -> Bool {
     guard let claude = findRunningClaude() else { return false }

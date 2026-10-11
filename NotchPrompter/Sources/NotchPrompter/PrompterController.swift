@@ -4,7 +4,7 @@ import AppKit
 /// - 回复出现文字时从刘海展开，单行滚动播放
 /// - 鼠标悬停时暂停；点击展开成多行，可以回看全文；鼠标移开后收起
 /// - 播放完毕几秒后自动收起
-/// - Claude 不在当前桌面时收起并暂停，回到 Claude 所在桌面后继续
+/// - 切到不是 Claude 所在的桌面时收起并暂停，切回来后继续
 final class PrompterController {
     var charsPerSecond: Double {
         get { ticker.charsPerSecond }
@@ -18,7 +18,7 @@ final class PrompterController {
     /// 显示框宽度（pt）。实际宽度不会窄于刘海，也不会超出屏幕
     private(set) var preferredWidth: CGFloat = 480
 
-    /// 当前桌面上看不到 Claude 窗口时为 true：收起面板、暂停播放，切回来后从暂停处继续
+    /// 当前不在 Claude 所在的桌面时为 true：收起面板、暂停播放，切回来后从暂停处继续
     var isSuspended = false {
         didSet {
             if isSuspended != oldValue { applySuspension() }

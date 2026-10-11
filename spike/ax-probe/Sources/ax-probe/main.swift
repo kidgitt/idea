@@ -10,9 +10,9 @@ let usage = """
       找到包含这段文字的元素，打印它的祖先链和往上 N 层的子树（stdout），用来确定回复元素的结构。
       默认只输出最后 2 处匹配，--context 4
 
-  ax-probe watch [--class 片段] [--interval 毫秒] [--idle 毫秒]
+  ax-probe watch [--interval 毫秒] [--idle 毫秒]
       实时打印 Claude 最后一条回复新增的文字，回复结束时输出字数、生成速度和扫描耗时。
-      默认 --class font-claude --interval 250 --idle 1500
+      默认 --interval 250 --idle 3000
 """
 
 func value(of flag: String, in args: [String]) -> String? {
@@ -46,9 +46,8 @@ do {
                       context: intValue(of: "--context", in: args, default: 4))
     case "watch":
         var options = WatchOptions()
-        if let hint = value(of: "--class", in: args) { options.classHint = hint }
         options.interval = Double(intValue(of: "--interval", in: args, default: 250)) / 1000
-        options.idle = Double(intValue(of: "--idle", in: args, default: 1500)) / 1000
+        options.idle = Double(intValue(of: "--idle", in: args, default: 3000)) / 1000
         try runWatch(options)
     default:
         print(usage)

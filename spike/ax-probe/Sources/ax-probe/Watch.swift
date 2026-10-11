@@ -2,40 +2,23 @@ import ApplicationServices
 import Foundation
 
 struct WatchOptions {
-    /// 回复消息元素的 class 中包含的片段，用来区分 Claude 的回复和用户的消息
-    var classHint = "font-claude"
     /// 轮询间隔（秒）
     var interval: TimeInterval = 0.25
-    /// 文字多久不变就认为本次回复结束（秒）
-    var idle: TimeInterval = 1.5
-}
-
-private struct Snapshot {
-    /// 找到的回复条数；兜底模式下为 0
-    var messageCount: Int
-    /// 最后一条回复的文字；兜底模式下为整个页面的文字
-    var text: String
-    var fallback: Bool
-}
-
-private func takeSnapshot(_ webArea: AXUIElement, classHint: String) -> Snapshot {
-    var messages: [AXUIElement] = []
-    walk(webArea) { element, _ in
-        if element.domClassList.contains(where: { $0.contains(classHint) }) {
-            messages.append(element)
-            return false
-        }
-        return true
-    }
-    if let last = messages.last {
-        return Snapshot(messageCount: messages.count, text: collectText(last), fallback: false)
-    }
-    return Snapshot(messageCount: 0, text: collectText(webArea), fallback: true)
+    /// 没等到工具栏时，文字多久不变就认为回复结束（秒）
+    var idle: TimeInterval = 3
 }
 
 private func emit(_ text: String) {
     print(text, terminator: "")
     fflush(stdout)
+}
+
+private func sameElement(_ a: AXUIElement?, _ b: AXUIElement?) -> Bool {
+    switch (a, b) {
+    case (nil, nil): return true
+    case let (a?, b?): return CFEqual(a, b)
+    default: return false
+    }
 }
 
 private func commonPrefixCount(_ a: String, _ b: String) -> Int {
@@ -46,14 +29,21 @@ private func commonPrefixCount(_ a: String, _ b: String) -> Int {
 func runWatch(_ options: WatchOptions) throws {
     let (_, app) = try openClaude()
     var webArea = try findWebArea(in: app)
+    var messageList: AXUIElement?
     report("开始监听，每 \(Int(options.interval * 1000))ms 读取一次。去 Claude 里提个问题试试，按 Ctrl+C 结束。")
 
+    var lastAnchor: AXUIElement?
     var lastText: String?
     var lastCount = 0
-    var fallback: Bool?
+    var initialized = false
     var streamStart: Date?
     var lastChange: Date?
     var scanTimes: [Double] = []
+
+    func pause(since tickStart: Date) {
+        let remaining = options.interval - Date().timeIntervalSince(tickStart)
+        if remaining > 0 { Thread.sleep(forTimeInterval: remaining) }
+    }
 
     while true {
         let tickStart = Date()
@@ -65,59 +55,86 @@ func runWatch(_ options: WatchOptions) throws {
                 continue
             }
             webArea = found
+            messageList = nil
             report("[重新定位到聊天页面]")
         }
+        if messageList?.role == nil {
+            messageList = findMessageList(in: webArea)
+            if messageList != nil { report("[定位到消息列表]") }
+        }
+        guard let list = messageList else {
+            pause(since: tickStart)
+            continue
+        }
 
-        let snap = takeSnapshot(webArea, classHint: options.classHint)
+        let articles = messageArticles(in: list)
+        let row = articles.last.flatMap(replyRow(of:))
+        let reply = row.map(readReply)
         let now = Date()
         scanTimes.append(now.timeIntervalSince(tickStart) * 1000)
 
-        if fallback != snap.fallback {
-            fallback = snap.fallback
-            report(snap.fallback
-                ? "[兜底模式] 没找到 class 含 \"\(options.classHint)\" 的元素，改为监听整个页面的文字。请用 dump 找到回复元素的 class，再用 --class 指定。"
-                : "[精确模式] 通过 class \"\(options.classHint)\" 找到 \(snap.messageCount) 条回复。")
+        // 第一条消息的元素变了，说明切换了会话（或新建了会话）：静默重新同步，不把旧回复当成新回复打印。
+        // 如果最后一条回复还在生成（没有工具栏），比如新会话里的第一条回复，就按新回复处理。
+        let anchor = articles.first
+        if !initialized || !sameElement(anchor, lastAnchor) {
+            let streaming = initialized && reply.map { !$0.hasToolbar } == true
+            lastAnchor = anchor
+            lastCount = articles.count - (streaming ? 1 : 0)
+            lastText = streaming ? nil : reply?.text
+            streamStart = nil
+            lastChange = nil
+            let title: String = webArea.attribute(kAXTitleAttribute) ?? "?"
+            if initialized {
+                report("[会话变化：\(title)，共 \(articles.count) 条消息]")
+            } else {
+                let lastMessage = reply.map { "是回复，\($0.text.count) 字" } ?? "是你的消息"
+                report("[初始] 会话：\(title)，共 \(articles.count) 条消息，最后一条\(lastMessage)")
+                report(String(format: "[初始] 首次扫描耗时 %.0fms", scanTimes.last ?? 0))
+                initialized = true
+            }
         }
 
-        if let previous = lastText {
-            if snap.messageCount < lastCount {
-                report("[回复条数减少 \(lastCount) → \(snap.messageCount)，可能切换了会话，重新开始]")
-                streamStart = nil
-                lastChange = nil
-            } else if snap.messageCount > lastCount {
-                emit("\n\n===== 新回复 =====\n" + snap.text)
+        if let reply {
+            if articles.count > lastCount {
+                emit("\n\n===== 新回复 =====\n" + reply.text)
                 streamStart = now
                 lastChange = now
-            } else if snap.text != previous {
-                if snap.text.hasPrefix(previous) {
-                    emit(String(snap.text.dropFirst(previous.count)))
+            } else if articles.count < lastCount {
+                report("[消息条数减少 \(lastCount) → \(articles.count)，重新同步]")
+            } else if let previous = lastText, reply.text != previous {
+                if reply.text.hasPrefix(previous) {
+                    emit(String(reply.text.dropFirst(previous.count)))
                 } else {
-                    let common = commonPrefixCount(previous, snap.text)
-                    emit("\n[前文变化，回退 \(previous.count - common) 字]\n" + String(snap.text.dropFirst(common)))
+                    let common = commonPrefixCount(previous, reply.text)
+                    emit("\n[前文变化，回退 \(previous.count - common) 字]\n" + String(reply.text.dropFirst(common)))
                 }
                 if streamStart == nil { streamStart = now }
                 lastChange = now
-            } else if let start = streamStart, let changed = lastChange, now.timeIntervalSince(changed) >= options.idle {
+            } else if lastText == nil {
+                emit("\n\n===== 新回复 =====\n" + reply.text)
+                streamStart = now
+                lastChange = now
+            }
+
+            if let start = streamStart, let changed = lastChange,
+               reply.hasToolbar || now.timeIntervalSince(changed) >= options.idle {
                 let duration = max(changed.timeIntervalSince(start), 0.001)
                 emit("\n")
-                report(String(format: "[完成] 共 %ld 字，生成用时 %.1f 秒（约 %.0f 字/秒）；本轮扫描平均 %.0fms，最慢 %.0fms",
-                           snap.text.count, duration, Double(snap.text.count) / duration,
-                           scanTimes.reduce(0, +) / Double(scanTimes.count), scanTimes.max() ?? 0))
+                report(String(format: "[完成·%@] 共 %ld 字，生成用时 %.1f 秒（约 %.0f 字/秒）；本轮扫描平均 %.0fms，最慢 %.0fms",
+                              reply.hasToolbar ? "工具栏出现" : "文字停止变化",
+                              reply.text.count, duration, Double(reply.text.count) / duration,
+                              scanTimes.reduce(0, +) / Double(scanTimes.count), scanTimes.max() ?? 0))
                 streamStart = nil
                 lastChange = nil
             }
-        } else {
-            let preview = snap.text.suffix(60).replacingOccurrences(of: "\n", with: "⏎")
-            report("[初始] 最后一条已有 \(snap.text.count) 字，结尾：…\(preview)")
-            report(String(format: "[初始] 首次扫描耗时 %.0fms", scanTimes.last ?? 0))
-        }
 
-        lastText = snap.text
-        lastCount = snap.messageCount
+            lastText = reply.text
+            lastCount = articles.count
+        }
+        // 最后一条是用户消息时（刚发出、Claude 还没开始回复）保持原状态，等回复出现
+
         // 只统计回复生成期间的扫描耗时
         if streamStart == nil { scanTimes.removeAll() }
-
-        let remaining = options.interval - Date().timeIntervalSince(tickStart)
-        if remaining > 0 { Thread.sleep(forTimeInterval: remaining) }
+        pause(since: tickStart)
     }
 }

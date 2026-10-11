@@ -6,23 +6,27 @@ This file provides guidance for AI assistants (Claude and others) working in thi
 
 ## Repository Overview
 
-> **TODO**: Replace this section with a description of what this project does, its purpose, and the problem it solves.
+A macOS menu-bar tool that scrolls Claude desktop-client replies across the MacBook notch area like a teleprompter, with selectable scroll speed.
 
 - **Repo**: `kidgitt/idea`
-- **Status**: Initial setup — no source files yet
+- **Status**: Feasibility spike — verifying that reply text can be read live from the Claude desktop client via the macOS Accessibility API
 - **Branch strategy**: See [Branch Conventions](#branch-conventions) below
 
 ---
 
 ## Project Structure
 
-> **TODO**: Update this section once the project structure is established.
-
 ```
 /
-├── CLAUDE.md          # This file
-└── (project files to be added)
+├── CLAUDE.md                  # This file
+└── spike/
+    └── ax-probe/              # Swift CLI: reads Claude replies via the Accessibility API (feasibility spike)
+        ├── Package.swift
+        ├── README.md          # How to build/run on a Mac and what results to report
+        └── Sources/ax-probe/
 ```
+
+Swift code only builds on macOS (`cd spike/ax-probe && swift build`); it cannot be compiled in the Linux cloud environment.
 
 ---
 

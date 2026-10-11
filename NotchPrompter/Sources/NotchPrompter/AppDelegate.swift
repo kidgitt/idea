@@ -1,6 +1,6 @@
 import AppKit
 
-/// 菜单栏图标和菜单：连接状态、播放速度、显示宽度、暂停、测试滚动、退出
+/// 菜单栏图标和菜单：连接状态、播放速度、显示宽度、暂停、跳到最新、测试滚动、退出
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let prompter = PrompterController()
     private let reader = ClaudeReader()
@@ -88,6 +88,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         pauseMenuItem.target = self
         menu.addItem(pauseMenuItem)
+        let jumpItem = NSMenuItem(title: "跳到最新", action: #selector(jumpToLatest), keyEquivalent: "")
+        jumpItem.target = self
+        menu.addItem(jumpItem)
         let testItem = NSMenuItem(title: "测试滚动", action: #selector(playTest), keyEquivalent: "")
         testItem.target = self
         menu.addItem(testItem)
@@ -175,9 +178,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pauseMenuItem.title = prompter.isUserPaused ? "继续播放" : "暂停播放"
     }
 
+    @objc private func jumpToLatest() {
+        prompter.jumpToLatest()
+    }
+
     /// 不依赖 Claude，模拟一段流式输出，用来检查刘海显示和速度
     @objc private func playTest() {
-        let sample = "这是一段测试文字，用来检查刘海提词器的显示效果。\n文字会从右侧进入，按设定的速度向左滚动。\n鼠标悬停可以暂停，点击可以展开查看全文，移开鼠标后收起。"
+        let sample = "这是一段测试文字，用来检查刘海提词器的显示效果。\n文字会从右侧进入，按设定的速度向左滚动。\n鼠标悬停可以暂停，点击可以展开查看全文，移开鼠标后收起。\n刘海右侧显示剩余时间，文字下方的细线是播放进度。\n悬停时刘海左侧会出现跳到最新按钮，点一下就会跳过积压的内容，直接播放最新的文字。\n这是最后一句。"
         let chunks = stride(from: 0, to: sample.count, by: 4).map { start -> String in
             let from = sample.index(sample.startIndex, offsetBy: start)
             let to = sample.index(from, offsetBy: 4, limitedBy: sample.endIndex) ?? sample.endIndex

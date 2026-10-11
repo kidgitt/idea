@@ -5,7 +5,8 @@ import AppKit
 /// - 鼠标悬停时暂停；点击展开成多行，可以回看全文；鼠标移开后收起
 /// - 播放完毕几秒后自动收起
 /// - 切到不是 Claude 所在的桌面时收起并暂停，切回来后继续
-final class PrompterController {
+/// - 文字下方显示进度条，刘海右侧显示剩余时间；悬停时刘海左侧出现"跳到最新"按钮
+final class PrompterController: NSObject {
     var charsPerSecond: Double {
         get { ticker.charsPerSecond }
         set { ticker.charsPerSecond = newValue }
@@ -34,6 +35,9 @@ final class PrompterController {
     private let ticker = TickerView()
     private let scrollView = NSScrollView()
     private let textView = NSTextView()
+    private let progressLine = ProgressLineView()
+    private let remainingLabel = NSTextField(labelWithString: "")
+    private let jumpButton = FirstMouseButton()
 
     private let tickerHeight: CGFloat = 32
     private let expandedHeight: CGFloat = 220
@@ -45,11 +49,30 @@ final class PrompterController {
     private var isHovering = false
     private var isDrained = false
     private var hideWork: DispatchWorkItem?
+    /// 刘海两侧是否有足够空间放剩余时间和"跳到最新"按钮
+    private var hasRoomBesideNotch = false
 
-    init() {
+    override init() {
+        super.init()
         panel.contentView = content
         content.addSubview(ticker)
         content.addSubview(scrollView)
+        content.addSubview(progressLine)
+        content.addSubview(remainingLabel)
+        content.addSubview(jumpButton)
+
+        remainingLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        remainingLabel.textColor = NSColor.white.withAlphaComponent(0.6)
+
+        jumpButton.title = "跳到最新"
+        jumpButton.image = NSImage(systemSymbolName: "forward.end.fill", accessibilityDescription: nil)
+        jumpButton.imagePosition = .imageLeading
+        jumpButton.isBordered = false
+        jumpButton.font = .systemFont(ofSize: 11, weight: .medium)
+        jumpButton.contentTintColor = .white
+        jumpButton.target = self
+        jumpButton.action = #selector(jumpButtonClicked)
+        jumpButton.isHidden = true
 
         textView.isEditable = false
         textView.isSelectable = true
@@ -68,6 +91,7 @@ final class PrompterController {
         scrollView.scrollerStyle = .overlay
         scrollView.isHidden = true
 
+        ticker.onProgress = { [weak self] progress in self?.updateProgress(progress) }
         ticker.onDrained = { [weak self] in
             self?.isDrained = true
             self?.scheduleHide()
@@ -75,6 +99,7 @@ final class PrompterController {
         content.onHoverChanged = { [weak self] hovering in
             guard let self else { return }
             isHovering = hovering
+            updateJumpButton()
             if !hovering {
                 setExpanded(false)
                 if isDrained { scheduleHide() }
@@ -123,6 +148,40 @@ final class PrompterController {
         if preview && (isDrained || fullText.isEmpty) { scheduleHide() }
     }
 
+    /// 跳过积压的内容，直接播放最新的文字
+    func jumpToLatest() {
+        ticker.jumpToLatest()
+        if isExpanded { textView.scrollToEndOfDocument(nil) }
+    }
+
+    @objc private func jumpButtonClicked() {
+        jumpToLatest()
+    }
+
+    // MARK: - 进度
+
+    private func updateProgress(_ progress: TickerProgress) {
+        progressLine.fraction = progress.fraction
+        let text: String
+        if fullText.isEmpty {
+            text = ""
+        } else if progress.isPaused {
+            text = "已暂停"
+        } else if progress.remaining >= 1 {
+            let seconds = Int(progress.remaining.rounded())
+            // 回复还在生成时加"+"：后面还会有新文字，实际剩余会更长
+            text = String(format: "剩余 %ld:%02ld", seconds / 60, seconds % 60) + (progress.isComplete ? "" : "+")
+        } else {
+            // 已追上 Claude 的输出，等新文字
+            text = progress.isComplete ? "" : "等待中"
+        }
+        if remainingLabel.stringValue != text { remainingLabel.stringValue = text }
+    }
+
+    private func updateJumpButton() {
+        jumpButton.isHidden = !(isHovering && hasRoomBesideNotch)
+    }
+
     // MARK: - 显示与隐藏
 
     private func applySuspension() {
@@ -131,6 +190,7 @@ final class PrompterController {
             cancelHide()
             // 面板直接收起时收不到鼠标移出事件，手动清掉悬停状态，免得回来后一直暂停
             isHovering = false
+            updateJumpButton()
             setExpanded(false)
             panel.orderOut(nil)
             updatePause()
@@ -182,6 +242,7 @@ final class PrompterController {
         guard expanded != isExpanded else { return }
         isExpanded = expanded
         ticker.isHidden = expanded
+        progressLine.isHidden = expanded
         scrollView.isHidden = !expanded
         applyLayout()
         if expanded {
@@ -220,8 +281,20 @@ final class PrompterController {
         panel.setFrame(NSRect(x: frame.midX - width / 2, y: frame.maxY - height, width: width, height: height), display: true)
         content.needsDisplay = true
         // 内容区在刘海下方（坐标原点在左下角）
-        ticker.frame = NSRect(x: 16, y: 0, width: width - 32, height: tickerHeight)
+        ticker.frame = NSRect(x: 16, y: 2, width: width - 32, height: tickerHeight - 2)
+        progressLine.frame = NSRect(x: 20, y: 3, width: width - 40, height: 2)
         scrollView.frame = NSRect(x: 12, y: 10, width: width - 24, height: bodyHeight - 14)
         textView.frame.size.width = scrollView.contentSize.width
+
+        // 刘海两侧（菜单栏那一行）：右边放剩余时间，左边放"跳到最新"按钮
+        let sideWidth = (width - notchWidth) / 2 - 16
+        hasRoomBesideNotch = sideWidth >= 64
+        let buttonWidth = min(sideWidth, 84)
+        remainingLabel.frame = NSRect(x: width / 2 + notchWidth / 2 + 8, y: bodyHeight + (topInset - 14) / 2,
+                                      width: max(sideWidth - 4, 0), height: 14)
+        jumpButton.frame = NSRect(x: width / 2 - notchWidth / 2 - 8 - buttonWidth, y: bodyHeight + (topInset - 20) / 2,
+                                  width: buttonWidth, height: 20)
+        remainingLabel.isHidden = !hasRoomBesideNotch
+        updateJumpButton()
     }
 }

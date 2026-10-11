@@ -2,13 +2,27 @@ import AppKit
 import CoreText
 import QuartzCore
 
+struct TickerProgress {
+    /// 已播放的比例：文字末尾进入可视区域时为 1
+    var fraction: Double
+    /// 按当前速度，文字末尾还要多久进入可视区域
+    var remaining: TimeInterval
+    /// 回复已结束；为 false 时后面还会有新文字
+    var isComplete: Bool
+    var isPaused: Bool
+}
+
 /// 单行横向滚动的文字：从右侧进入，向左移动。
 /// 回复还在生成时，滚到已有文字的末尾就停下等待；回复结束后整段滚出左侧，然后回调 onDrained。
 final class TickerView: NSView {
     /// 播放速度：每秒滚过的字数
     var charsPerSecond: Double = 7
-    var isPaused = false
+    var isPaused = false {
+        didSet { if isPaused != oldValue { reportProgress() } }
+    }
     var onDrained: (() -> Void)?
+    /// 每帧位置变化或状态变化时回调，用于显示进度
+    var onProgress: ((TickerProgress) -> Void)?
 
     private let font = NSFont.systemFont(ofSize: 15, weight: .medium)
     private var text = ""
@@ -65,6 +79,7 @@ final class TickerView: NSView {
         isComplete = false
         hasDrained = false
         needsDisplay = true
+        reportProgress()
     }
 
     func append(_ newText: String) {
@@ -80,12 +95,34 @@ final class TickerView: NSView {
         lineWidth = CGFloat(CTLineGetTypographicBounds(newLine, nil, nil, nil))
         hasDrained = false
         needsDisplay = true
+        reportProgress()
     }
 
     /// 回复已结束，可以把剩下的文字全部滚出去
     func markComplete() {
         isComplete = true
         hasDrained = false
+        reportProgress()
+    }
+
+    /// 跳过积压的内容：让最新的文字铺满可视区域（文字末尾对齐右边缘），之后照常播放
+    func jumpToLatest() {
+        guard charCount > 0, offset < lineWidth else { return }
+        offset = lineWidth
+        needsDisplay = true
+        reportProgress()
+    }
+
+    private func reportProgress() {
+        guard let onProgress else { return }
+        guard charCount > 0, lineWidth > 0 else {
+            onProgress(TickerProgress(fraction: 0, remaining: 0, isComplete: isComplete, isPaused: isPaused))
+            return
+        }
+        let pointsPerSecond = lineWidth / CGFloat(charCount) * CGFloat(charsPerSecond)
+        let remaining = pointsPerSecond > 0 ? max(lineWidth - offset, 0) / pointsPerSecond : 0
+        onProgress(TickerProgress(fraction: Double(min(offset / lineWidth, 1)), remaining: TimeInterval(remaining),
+                                  isComplete: isComplete, isPaused: isPaused))
     }
 
     @objc private func step(_ link: CADisplayLink) {
@@ -105,6 +142,7 @@ final class TickerView: NSView {
         let elapsed = min(link.timestamp - last, 0.1)
         offset = min(offset + CGFloat(charsPerSecond * elapsed) * pointsPerChar, limit)
         needsDisplay = true
+        reportProgress()
     }
 
     override func draw(_ dirtyRect: NSRect) {

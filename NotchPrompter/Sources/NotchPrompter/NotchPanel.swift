@@ -61,3 +61,26 @@ final class NotchContentView: NSView {
     override func mouseExited(with event: NSEvent) { onHoverChanged?(false) }
     override func mouseDown(with event: NSEvent) { onClick?() }
 }
+
+/// 文字下方的细进度条
+final class ProgressLineView: NSView {
+    var fraction: Double = 0 {
+        didSet { if fraction != oldValue { needsDisplay = true } }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let radius = bounds.height / 2
+        NSColor.white.withAlphaComponent(0.15).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+
+        var filled = bounds
+        filled.size.width = bounds.width * CGFloat(max(0, min(fraction, 1)))
+        NSColor.white.withAlphaComponent(0.6).setFill()
+        NSBezierPath(roundedRect: filled, xRadius: radius, yRadius: radius).fill()
+    }
+}
+
+/// 面板不会成为焦点窗口，每次点击都算"第一次点击"，按钮需要显式接受才能响应
+final class FirstMouseButton: NSButton {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}

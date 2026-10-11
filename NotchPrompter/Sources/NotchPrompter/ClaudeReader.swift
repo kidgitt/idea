@@ -16,7 +16,6 @@ final class ClaudeReader {
 
     var onEvent: ((Event) -> Void)?
 
-    private let claudeBundleIDs = ["com.anthropic.claudefordesktop"]
     private let interval: TimeInterval = 0.25
     /// 找不到聊天页面或消息列表时，隔多久再全页搜索一次（全页搜索比较慢）
     private let searchInterval: TimeInterval = 1
@@ -48,19 +47,13 @@ final class ClaudeReader {
                 Thread.sleep(forTimeInterval: searchInterval)
                 continue
             }
-            guard let app = runningClaude() else {
+            guard let app = findRunningClaude() else {
                 setStatus("没有找到 Claude 客户端")
                 Thread.sleep(forTimeInterval: searchInterval)
                 continue
             }
             watch(app)
         }
-    }
-
-    private func runningClaude() -> NSRunningApplication? {
-        let apps = NSWorkspace.shared.runningApplications
-        return apps.first { claudeBundleIDs.contains($0.bundleIdentifier ?? "") }
-            ?? apps.first { $0.localizedName == "Claude" }
     }
 
     /// 持续监听一个 Claude 进程，直到它退出

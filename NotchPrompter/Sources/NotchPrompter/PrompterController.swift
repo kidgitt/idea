@@ -4,6 +4,7 @@ import AppKit
 /// - 回复出现文字时从刘海展开，单行滚动播放
 /// - 鼠标悬停时暂停；点击展开成多行，可以回看全文；鼠标移开后收起
 /// - 播放完毕几秒后自动收起
+/// - Claude 不在当前桌面时收起并暂停，回到 Claude 所在桌面后继续
 final class PrompterController {
     var charsPerSecond: Double {
         get { ticker.charsPerSecond }
@@ -16,6 +17,17 @@ final class PrompterController {
 
     /// 显示框宽度（pt）。实际宽度不会窄于刘海，也不会超出屏幕
     private(set) var preferredWidth: CGFloat = 480
+
+    /// 当前桌面上看不到 Claude 窗口时为 true：收起面板、暂停播放，切回来后从暂停处继续
+    var isSuspended = false {
+        didSet {
+            if isSuspended != oldValue { applySuspension() }
+        }
+    }
+
+    /// "测试滚动"不依赖 Claude，不受所在桌面影响
+    private var ignoresSuspension = false
+    private var isEffectivelySuspended: Bool { isSuspended && !ignoresSuspension }
 
     private let panel = NotchPanel()
     private let content = NotchContentView()
@@ -74,12 +86,16 @@ final class PrompterController {
 
     // MARK: - 回复事件
 
-    func beginReply() {
+    func beginReply(isTest: Bool = false) {
         cancelHide()
         fullText = ""
         textView.string = ""
         ticker.reset()
         isDrained = false
+        if ignoresSuspension != isTest {
+            ignoresSuspension = isTest
+            applySuspension()
+        }
     }
 
     func append(_ text: String) {
@@ -102,14 +118,30 @@ final class PrompterController {
         if panel.isVisible {
             applyLayout()
         } else if preview {
-            show()
+            show(force: true)
         }
         if preview && (isDrained || fullText.isEmpty) { scheduleHide() }
     }
 
     // MARK: - 显示与隐藏
 
-    private func show() {
+    private func applySuspension() {
+        updatePause()
+        if isEffectivelySuspended {
+            cancelHide()
+            // 面板直接收起时收不到鼠标移出事件，手动清掉悬停状态，免得回来后一直暂停
+            isHovering = false
+            setExpanded(false)
+            panel.orderOut(nil)
+            updatePause()
+        } else if !isDrained && !fullText.isEmpty {
+            show()
+        }
+    }
+
+    /// force：预览宽度时即使 Claude 不在当前桌面也显示
+    private func show(force: Bool = false) {
+        guard force || !isEffectivelySuspended else { return }
         cancelHide()
         if panel.isVisible && panel.alphaValue == 1 { return }
         applyLayout()
@@ -160,7 +192,7 @@ final class PrompterController {
     }
 
     private func updatePause() {
-        ticker.isPaused = isUserPaused || isHovering || isExpanded
+        ticker.isPaused = isUserPaused || isHovering || isExpanded || isEffectivelySuspended
     }
 
     // MARK: - 布局

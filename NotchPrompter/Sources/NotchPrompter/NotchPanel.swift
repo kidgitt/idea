@@ -1,6 +1,8 @@
 import AppKit
 
-/// 贴在屏幕顶部正中、盖住刘海的无边框面板，不抢焦点，在所有桌面和全屏应用上方显示
+/// 贴在屏幕顶部正中、盖住刘海的无边框面板，不抢焦点，可以显示在全屏应用上方。
+/// 不加入所有桌面：面板留在显示它时所在的桌面，切到别的桌面时由系统自然隐藏，
+/// 再配合 PrompterController.isSuspended 在 Claude 不在当前桌面时收起。
 final class NotchPanel: NSPanel {
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -8,7 +10,7 @@ final class NotchPanel: NSPanel {
         backgroundColor = .clear
         hasShadow = false
         level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
-        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        collectionBehavior = [.fullScreenAuxiliary, .ignoresCycle]
         isMovable = false
         hidesOnDeactivate = false
         isReleasedWhenClosed = false

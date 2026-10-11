@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let reader = ClaudeReader()
 
     private var statusItem: NSStatusItem?
+    private var spaceCheckTimer: Timer?
     private let statusMenuItem = NSMenuItem(title: "正在启动…", action: nil, keyEquivalent: "")
     private let pauseMenuItem = NSMenuItem(title: "暂停播放", action: #selector(AppDelegate.togglePause), keyEquivalent: "")
 
@@ -34,6 +35,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         reader.onEvent = { [weak self] event in self?.handle(event) }
         reader.start()
+        startFollowingClaudeSpace()
+    }
+
+    /// 切换桌面时立即检查一次；另外每 0.5 秒检查一次，覆盖最小化、关闭窗口、全屏等情况
+    private func startFollowingClaudeSpace() {
+        let check: () -> Void = { [weak self] in
+            self?.prompter.isSuspended = !claudeHasWindowOnCurrentSpace()
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
+        ) { _ in check() }
+        let timer = Timer(timeInterval: 0.5, repeats: true) { _ in check() }
+        RunLoop.main.add(timer, forMode: .common)
+        spaceCheckTimer = timer
+        check()
     }
 
     private func handle(_ event: ClaudeReader.Event) {
@@ -161,7 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let to = sample.index(from, offsetBy: 4, limitedBy: sample.endIndex) ?? sample.endIndex
             return String(sample[from..<to])
         }
-        prompter.beginReply()
+        prompter.beginReply(isTest: true)
         for (index, chunk) in chunks.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.1) { [weak self] in
                 self?.prompter.append(chunk)

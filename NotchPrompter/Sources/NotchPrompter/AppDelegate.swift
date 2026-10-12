@@ -1,6 +1,6 @@
 import AppKit
 
-/// 菜单栏图标和菜单：连接状态、播放速度、显示宽度、暂停、跳到最新、测试滚动、退出
+/// 菜单栏图标和菜单：连接状态、播放速度、显示宽度、暂停、跳到最新、测试滚动、重启 Claude、退出
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let prompter = PrompterController()
     private let reader = ClaudeReader()
@@ -100,6 +100,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(testItem)
         menu.addItem(.separator())
 
+        let relaunchItem = NSMenuItem(title: "重启 Claude（最小化时也能继续读取）…",
+                                      action: #selector(relaunchClaude), keyEquivalent: "")
+        relaunchItem.target = self
+        menu.addItem(relaunchItem)
+        menu.addItem(.separator())
+
         menu.addItem(NSMenuItem(title: "退出", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         return menu
     }
@@ -179,6 +185,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func togglePause() {
         prompter.isUserPaused.toggle()
+    }
+
+    @objc private func relaunchClaude() {
+        let alert = NSAlert()
+        alert.messageText = "重启 Claude？"
+        alert.informativeText = """
+        Claude 会退出并重新打开。重新打开后，即使 Claude 窗口最小化或被其他窗口完全挡住，回复也会继续更新，提词器可以照常读取。
+
+        正在生成的回复会被中断。这个设置只对这一次打开有效，以后从程序坞或启动台直接打开 Claude，需要再用这个菜单重启一次。
+        """
+        alert.addButton(withTitle: "重启")
+        alert.addButton(withTitle: "取消")
+        NSApp.activate()
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        relaunchClaudeWithoutBackgroundPause { error in
+            guard let error else { return }
+            let failure = NSAlert()
+            failure.messageText = "重启 Claude 失败"
+            failure.informativeText = error.localizedDescription
+            NSApp.activate()
+            failure.runModal()
+        }
     }
 
     @objc private func jumpToLatest() {
